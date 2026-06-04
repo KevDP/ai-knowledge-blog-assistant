@@ -1,0 +1,65 @@
+# ──────────────────────────────────────────────────────────────────────────
+# Secrets — NUNCA commitear estas. Si alguna llega a main por accidente,
+# rotar la key INMEDIATAMENTE en console.anthropic.com / AWS IAM.
+# ──────────────────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials
+aws-exports.json
+
+# ──────────────────────────────────────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# ──────────────────────────────────────────────────────────────────────────
+# Artefactos generados — embeddings.json se regenera con `python -m src.ingest`,
+# no se versiona (puede pesar MB y cambia con cada actualización de knowledge).
+# ──────────────────────────────────────────────────────────────────────────
+embeddings.json
+*.pkl
+.cache/
+
+# ──────────────────────────────────────────────────────────────────────────
+# Terraform (Fase 1)
+# ──────────────────────────────────────────────────────────────────────────
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!example.tfvars
+.terraform.lock.hcl
+
+# ──────────────────────────────────────────────────────────────────────────
+# Lambda packaging (Fase 1)
+# ──────────────────────────────────────────────────────────────────────────
+lambda.zip
+lambda_layer.zip
+package/
+
+# ──────────────────────────────────────────────────────────────────────────
+# Editor / OS
+# ──────────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

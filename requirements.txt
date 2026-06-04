@@ -1,0 +1,26 @@
+# Fase 0 (RAG local, $0 infra) — solo lo mínimo necesario.
+# Versiones fijadas para reproducibilidad. Actualiza intencionalmente, no por accidente.
+
+# LLM client
+anthropic==0.39.0
+
+# Embeddings (modelo local, CPU-only, ~80MB descargado al primer uso)
+sentence-transformers==3.3.1
+
+# Numpy para cosine similarity. torch viene como dependencia transitiva
+# de sentence-transformers — no agregar explícitamente para no fijar versión incompatible.
+numpy==2.1.3
+
+# .env loading
+python-dotenv==1.0.1
+
+# CLI niceties
+rich==13.9.4
+
+# Pin defensivo: anthropic 0.39.x no es compatible con httpx ≥0.28
+httpx<0.28
+
+# ──────────────────────────────────────────────────────────────────────────
+# Fase 1 (deploy AWS) — agregar cuando lleguemos:
+#   boto3==1.35.x   (Bedrock + DynamoDB client)
+# ──────────────────────────────────────────────────────────────────────────
