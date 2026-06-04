@@ -54,11 +54,11 @@ ai-knowledge-assistant/
 
 ## Tech (Phase 0)
 
-- Embeddings: sentence-transformers with BAAI/bge-small-en-v1.5 (384-dim, CPU)
-  - Contextual chunking: metadata-enriched embeddings, raw chunks sent to LLM
-- Relevance gate: cosine threshold 0.55 (probabilistic — see knowledge/ for limits)
+- **Embeddings:** `sentence-transformers` with `BAAI/bge-small-en-v1.5` (384-dim, CPU)
+  - Contextual chunking: documents embedded with `Document | Topic | Content` metadata prefix; raw chunks sent to LLM
 - **Vector store:** plain JSON on disk (sufficient for <1000 chunks)
-- **LLM:** Claude 3.5 Haiku via Anthropic API
+- **LLM:** Claude Haiku 4.5 via Anthropic API
+- **Relevance gate:** cosine similarity threshold 0.55 (probabilistic — see code comments for tuning notes and known limits)
 - **No cloud, no Docker, no DB.** Total infra cost: $0.
 
 ## License
