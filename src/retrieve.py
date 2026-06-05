@@ -1,14 +1,13 @@
 """
-retrieve.py — Recupera los top-k chunks más similares a una pregunta.
+retrieve.py
 
-Diseño:
-- Funciones puras, sin side effects salvo carga lazy del índice y del modelo.
-- El índice (embeddings.json) y el modelo se cargan una sola vez por proceso,
-  cacheados en variables module-level. Importante para el CLI interactivo: el
-  primer query paga el costo (~2s carga modelo + JSON), los siguientes son ms.
-- Similitud coseno = dot product entre vectores normalizados. ingest.py ya los
-  normaliza, así que aquí asumimos `normalize_embeddings=True` y solo hacemos
-  `query @ matrix.T`.
+- top-k chunks most similar to question.
+
+Design:
+- Index (embeddings.json) and model gets loaded once per process.
+- Similar to coseno = dot product on normalized vectors. 
+- Regarding to Ingest.py we assume `normalize_embeddings=True`,
+then, we concluded with `query @ matrix.T`.
 """
 from __future__ import annotations
 
@@ -22,17 +21,9 @@ from sentence_transformers import SentenceTransformer
 ROOT = Path(__file__).resolve().parent.parent
 INDEX_PATH = ROOT / "embeddings.json"
 
-# DEBE coincidir con ingest.py. Si los modelos no son el mismo,
-# los embeddings del índice y los del query están en espacios distintos
-# y la similitud no significa nada. Mantener sincronizado.
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 
-# BGE recomienda prepender una instrucción al QUERY (no al document) para
-# tareas de retrieval. Mejora ~3-5% el recall. Sin esto, BGE sigue
-# funcionando pero pierdes parte de la ventaja sobre MiniLM.
-# Ver: https://huggingface.co/BAAI/bge-small-en-v1.5#usage-for-retrieval
 BGE_QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
-
 
 class RetrievedChunk(TypedDict):
     text: str
@@ -40,10 +31,6 @@ class RetrievedChunk(TypedDict):
     topic: str
     score: float
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Lazy singletons. No los expongas públicamente; usa retrieve() / get_model().
-# ─────────────────────────────────────────────────────────────────────────────
 _model: SentenceTransformer | None = None
 _index_texts: list[dict] | None = None
 _index_matrix: np.ndarray | None = None
@@ -82,17 +69,16 @@ def retrieve(query: str, k: int = 3) -> list[RetrievedChunk]:
     model = _load_model()
     texts, matrix = _load_index()
 
-    # Embed la pregunta CON el prefijo de instrucción BGE. Normalizamos
-    # para que el dot product sea coseno.
+    # Normalizing, dot product = cos.
     q_vec = model.encode(
         [BGE_QUERY_INSTRUCTION + query],
         normalize_embeddings=True,
     )[0]
     scores = matrix @ q_vec  # shape: (n_chunks,)
 
-    # Top-k por score descendente. argpartition es O(n) vs argsort O(n log n);
-    # a esta escala (cientos de chunks) la diferencia es irrelevante, pero
-    # acostumbra al hábito correcto.
+    # Top-k per descendant score. 
+    # argpartition is O(n) vs argsort O(n log n);
+    # just as a best practice
     k = min(k, len(scores))
     top_idx = np.argpartition(scores, -k)[-k:]
     top_idx = top_idx[np.argsort(-scores[top_idx])]
@@ -109,7 +95,7 @@ def retrieve(query: str, k: int = 3) -> list[RetrievedChunk]:
 
 
 if __name__ == "__main__":
-    # Smoke test rápido si lo corres directo.
+    # Smoke test
     import sys
     q = " ".join(sys.argv[1:]) or "what is kevin's experience?"
     print(f"Query: {q}\n")

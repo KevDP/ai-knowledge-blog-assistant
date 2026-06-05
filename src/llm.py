@@ -1,55 +1,49 @@
 """
-llm.py — Cliente Claude para Fase 0 (Anthropic API directo).
+llm.py - Claude phase 0 - Direct API.
+On phase 1, this function will use Bedrock via boto3.
 
-Único punto de contacto con el modelo. En Fase 1 esta función se reescribe
-para llamar a Bedrock vía boto3, sin tocar nada más. Por eso la firma pública
-es minimalista: `answer(question, context, lang)` devuelve un string.
-
-Reglas:
-- API key se lee de la env var ANTHROPIC_API_KEY (cargada por python-dotenv en
-  el entrypoint, no aquí — este módulo NO toca el filesystem).
-- El system prompt está aquí, en código, no en un archivo suelto. Es parte del
-  contrato del producto; debe vivir junto al cliente que lo usa.
-- Modelo configurable vía ANTHROPIC_MODEL para poder iterar (Haiku vs Sonnet)
-  sin cambiar código.
+Rules:
+- API key in ANTHROPIC_API_KEY (loaded on entrypoint, this method dont use filesystem).
+- System prompt in the same file.
+- Change model via ANTHROPIC_MODEL (Haiku vs Sonnet).
 """
 from __future__ import annotations
 
 import os
+import sys
 
 from anthropic import Anthropic
 
 from src.retrieve import RetrievedChunk
 
-DEFAULT_MODEL = "claude-haiku-4-5"  # Anthropic alias para la última Haiku 4.5
-MAX_TOKENS = 600  # Respuestas concisas. Si necesitas más, sube esto.
+DEFAULT_MODEL = "claude-haiku-4-5"  # Anthropic model alias
+MAX_TOKENS = 600  # max number of tokens
+
+PRICE_INPUT_PER_M = 1.0     # aproximate pricing
+PRICE_OUTPUT_PER_M = 5.0
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Relevance gate — defensa de costos.
+# Pricing defense method.
 #
-# Si el mejor chunk recuperado tiene score por debajo de este umbral, NO
-# llamamos al LLM y devolvemos una respuesta canned. Esto mata:
-#   - preguntas off-topic (cuesta $0 vs ~$0.0036)
-#   - muchos prompt injection (no matchean el knowledge → score bajo)
-#   - bots que envían texto random
+# If chunk have lower score as expected, LLM will not be called, returning canned response
+# This method avoid:
+#   - off-topic questions ($0 vs ~$0.0036)
+#   - prompt injection (doesn't match knowledge = low score)
 #
-# Cómo tunearlo: corre `python -m src.retrieve "tu pregunta"` y observa los
-# scores de preguntas legítimas vs basura.
+# Tuning process: Run `python -m src.retrieve "your question"` and you will get
+# question related scores vs off-topic questions.
 #
-# Distribución medida con BGE-small + contextual chunking (mid-2026):
+# Expected distribution with BGE-small + contextual chunking:
 #   - on-topic (skills/experience/who):  0.65 – 0.66
 #   - off-topic puro (pizza/France):     0.45 – 0.53
-#   - off-topic ADYACENTE al dominio
-#     (Python tutorial, Tokyo time):     0.60 – 0.63  ← inseparables
+#   - adjacent off-topic                 0.60 – 0.63  (needs improvement)
 #
-# Threshold = 0.55 separa on-topic de off-topic PURO. NO separa de off-topic
-# adyacente — esa clase de queries SIEMPRE va a pasar el gate porque
-# comparte vocabulario con el KB. Es una limitación fundamental de cosine
-# similarity con embeddings densos, no un bug del threshold.
+# Threshold = 0.55
+# 
+# IMPORTANT Note: Pricing defense doesn't works with adjacent off-topic
+# adjacent off-topic = words related with KB. This is a fundamental limitation
+# and need improvement.
 #
-# Defensa real contra abuso domain-adjacent: rate limiting en API Gateway
-# (Fase 1). Ver knowledge_decision_framework_survival.md §9 y
-# knowledge_llm_production_economics.md §3 — Layer 3 es CRÍTICA, no opcional.
 # ─────────────────────────────────────────────────────────────────────────────
 RELEVANCE_THRESHOLD = 0.55
 
@@ -130,6 +124,22 @@ def answer(question: str, retrieved: list[RetrievedChunk]) -> str:
         system=SYSTEM_PROMPT_EN,
         messages=_build_messages(question, retrieved),
     )
-    # La respuesta es una lista de content blocks; en este uso simple siempre
-    # es un solo bloque de texto.
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Real-time usage tracking.
+    #
+    # Anthropic dashboard console have considerable latency (minutes to hours)
+    # Estimating pricing from tokens via response.usage immediately,
+    #
+    # Phase 1: replace print with logger.info()
+    # using structured logging via CloudWatch custom metrics and cost/hour alarm.
+    # ─────────────────────────────────────────────────────────────────────
+    usage = response.usage
+    in_tok = usage.input_tokens
+    out_tok = usage.output_tokens
+    cost = (in_tok * PRICE_INPUT_PER_M + out_tok * PRICE_OUTPUT_PER_M) / 1_000_000
+    print(
+        f"[llm] model={model} in={in_tok} out={out_tok} cost=${cost:.5f}",
+        file=sys.stderr,
+    )
     return response.content[0].text

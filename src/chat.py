@@ -1,10 +1,14 @@
 """
-chat.py — CLI interactivo para Fase 0.
+chat.py
 
-Es el orquestador: lee pregunta → retrieve → llm.answer → imprime.
-No contiene lógica de negocio; solo glue + UX de terminal.
+- An interative CLI for phase 0.
 
-Uso:
+1. Reads question
+2. retrieve
+3. llm.answer
+4. print.
+
+How to use:
     python -m src.chat
     python -m src.chat --once "what is kevin's experience?"
     python -m src.chat --show-sources
@@ -24,9 +28,9 @@ from src.retrieve import retrieve
 
 console = Console()
 
-# Defensa de costo: cualquier pregunta más larga que esto se rechaza antes
-# de embebir o llamar al LLM. 500 chars ≈ ~120 tokens — más que suficiente
-# para una pregunta legítima sobre el portafolio. Tunear si limita demasiado.
+# Pricing defense: long questons are rejected to call LLM, based on charts.
+# 500 chars ≈ ~120 tokens approximately
+# The longer question to be accepted, maximize the number of charts.
 MAX_QUESTION_CHARS = 500
 
 
@@ -77,7 +81,7 @@ def repl(*, k: int, show_sources: bool) -> None:
             return
         try:
             ask_once(question, k=k, show_sources=show_sources)
-        except Exception as exc:  # noqa: BLE001 — UX: mostramos cualquier error y seguimos.
+        except Exception as exc:
             console.print(f"[red]error:[/red] {exc}")
 
 

@@ -1,17 +1,15 @@
 """
-ingest.py — Construye el índice vectorial offline.
+ingest.py
 
-Lee todos los archivos markdown bajo ./knowledge/, los chunkea por párrafo,
-calcula embeddings con sentence-transformers (modelo local, CPU) y persiste
-el resultado en ./embeddings.json.
+Read all the markdown files ./knowledge/, start chunking process,
+calculate embeddings with sentence-transformers (locally) show
+the result via ./embeddings.json.
 
 Diseño:
-- Single responsibility: este módulo SOLO genera el índice. No habla con LLMs.
-  No corre en runtime de query. Se ejecuta una vez cada vez que cambia knowledge/.
-- El JSON es deliberadamente "tonto": una lista plana de chunks con su vector.
-  retrieve.py lo carga y hace cosine similarity en numpy. Cero infra extra.
-- Frontmatter YAML se descarta del texto embebido pero se conserva `topic` /
-  `language` como metadata para debugging y posible filtrado futuro.
+- Single responsibility: This file just generates the index.
+- It is executed each time that knowledge/ gets changed.
+- Frontmatter YAML it is discarged from embeddings but `topic` it is still saved
+  `language` as debugging metadata and future filters.
 """
 from __future__ import annotations
 
@@ -22,19 +20,15 @@ from typing import TypedDict
 
 from sentence_transformers import SentenceTransformer
 
-# Rutas relativas al root del repo (este archivo vive en src/).
 ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_DIR = ROOT / "knowledge"
 INDEX_PATH = ROOT / "embeddings.json"
 
-# Modelo: BAAI/bge-small-en-v1.5 — 384-dim, ~130MB, CPU-friendly.
-# Migrado desde all-MiniLM-L6-v2 (mejor calidad en retrieval benchmarks,
-# misma dimensionalidad → embeddings.json del mismo tamaño).
-# Para queries (no para documentos) BGE recomienda prefijo de instrucción;
-# eso vive en retrieve.py, no aquí.
+# Model: BAAI/bge-small-en-v1.5 — 384-dim, ~130MB, CPU-friendly.
+# For querying BGE recommends instruction prefix;
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 
-# Frontmatter YAML simple: --- ... --- al inicio del archivo.
+# Frontmatter YAML
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
@@ -108,8 +102,8 @@ def build_index() -> list[Chunk]:
     if not docs:
         raise RuntimeError(f"No markdown found under {KNOWLEDGE_DIR}")
 
-    flat_texts: list[str] = []          # contenido ORIGINAL (lo que va a Claude)
-    flat_embed_texts: list[str] = []    # contenido ENRIQUECIDO (lo que se embebe)
+    flat_texts: list[str] = []          # Original content (Claude)
+    flat_embed_texts: list[str] = []    # Embedded content
     flat_meta: list[tuple[str, str]] = []  # (source, topic)
     for source, meta, chunks in docs:
         topic = meta.get("topic", "")
@@ -119,21 +113,19 @@ def build_index() -> list[Chunk]:
             flat_meta.append((source, topic))
 
     print(f"[ingest] Embedding {len(flat_texts)} chunks from {len(docs)} files (contextual)...")
-    # encode() devuelve np.ndarray; convertimos a lista para serializar a JSON.
-    # Embebemos el texto ENRIQUECIDO. El JSON guarda el texto ORIGINAL.
     embeddings = model.encode(
         flat_embed_texts,
         show_progress_bar=True,
-        normalize_embeddings=True,  # importante: similitud coseno = dot product.
+        normalize_embeddings=True,
     )
 
     index: list[Chunk] = []
     for text, (source, topic), vec in zip(flat_texts, flat_meta, embeddings, strict=True):
         index.append({
-            "text": text,           # texto original — esto es lo que verá Claude
+            "text": text,           # text sent to Claude
             "source": source,
             "topic": topic,
-            "embedding": vec.tolist(),  # embedding del texto enriquecido
+            "embedding": vec.tolist(),
         })
     return index
 
