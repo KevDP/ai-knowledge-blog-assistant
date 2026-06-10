@@ -1,0 +1,2 @@
+# Phase 1a: sin deps externas. boto3 viene incluido en runtime Python 3.12.
+# Phase 1b NO requiere anthropic SDK aquí — vamos directo a Bedrock vía boto3.

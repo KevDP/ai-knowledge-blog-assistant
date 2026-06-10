@@ -45,7 +45,7 @@ embeddings.json
 *.tfstate.*
 *.tfvars
 !example.tfvars
-.terraform.lock.hcl
+infra/build/
 
 # ──────────────────────────────────────────────────────────────────────────
 # Lambda packaging (Fase 1)
