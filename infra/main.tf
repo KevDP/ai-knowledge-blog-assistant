@@ -27,7 +27,7 @@ provider "aws" {
 
   # default_tags to supported resources
   # cost management best practice
-  
+
   default_tags {
     tags = {
       Project     = "ai-knowledge-assistant"

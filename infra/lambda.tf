@@ -21,7 +21,7 @@ resource "aws_lambda_function" "eva" {
   runtime          = "python3.12"
   filename         = data.archive_file.eva_zip.output_path
   source_code_hash = data.archive_file.eva_zip.output_base64sha256
-  timeout          = 10  
+  timeout          = 10
   memory_size      = 256
 
   environment {
