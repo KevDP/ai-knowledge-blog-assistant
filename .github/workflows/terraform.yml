@@ -2,7 +2,7 @@ name: Terraform — ai-knowledge-assistant infra
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, main]
     paths:
       - 'infra/**'
       - 'lambda/**'
@@ -67,7 +67,7 @@ jobs:
 
       - name: Terraform apply
         if: |
-          (github.event_name == 'push' && github.ref == 'refs/heads/dev') ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
         run: terraform apply -auto-approve tfplan
 
