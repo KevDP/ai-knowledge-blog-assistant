@@ -27,3 +27,24 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
+
+# Bedrock InvokeModel permission
+# Scoped to foundation-model and inference-profile ARNs
+# Both included because newer Claude models on Bedrock may require inference profiles
+# If compromised, attacker can only invoke Bedrock models, not modify them or list
+
+data "aws_iam_policy_document" "lambda_bedrock" {
+  statement {
+    actions = ["bedrock:InvokeModel"]
+    resources = [
+      "arn:aws:bedrock:*::foundation-model/*",
+      "arn:aws:bedrock:*:*:inference-profile/*",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_bedrock" {
+  name   = "${local.name_prefix}-lambda-bedrock-invoke"
+  role   = aws_iam_role.lambda_exec.id
+  policy = data.aws_iam_policy_document.lambda_bedrock.json
+}
