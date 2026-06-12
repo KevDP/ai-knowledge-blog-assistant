@@ -7,9 +7,9 @@ variable "aws_region" {
 }
 
 variable "bedrock_model_id" {
-  description = "Bedrock model ID"
+  description = "Bedrock model ID. Haiku 4.5 requires the US cross-region inference profile. Direct foundation-model invocation returns ValidationException."
   type        = string
-  default     = "anthropic.claude-haiku-4-5-20251001-v1:0"
+  default     = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 }
 
 variable "monthly_budget_usd" {
