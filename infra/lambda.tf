@@ -21,13 +21,14 @@ resource "aws_lambda_function" "eva" {
   runtime          = "python3.12"
   filename         = data.archive_file.eva_zip.output_path
   source_code_hash = data.archive_file.eva_zip.output_base64sha256
-  timeout          = 10
+  timeout          = 30 # Bedrock invocation cold start
   memory_size      = 256
 
   environment {
     variables = {
-      # parameters for initial phase BEDROCK_MODEL_ID, RELEVANCE_THRESHOLD, etc.
-      PHASE = "1"
+      PHASE              = "1b"
+      BEDROCK_MODEL_ID   = var.bedrock_model_id
+      MAX_QUESTION_CHARS = "500"
     }
   }
 }
