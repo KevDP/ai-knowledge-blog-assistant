@@ -26,9 +26,13 @@ resource "aws_lambda_function" "eva" {
 
   environment {
     variables = {
-      PHASE              = "1b"
-      BEDROCK_MODEL_ID   = var.bedrock_model_id
-      MAX_QUESTION_CHARS = "500"
+      PHASE               = "1c"
+      BEDROCK_MODEL_ID    = var.bedrock_model_id
+      TITAN_MODEL_ID      = var.titan_model_id
+      KNOWLEDGE_TABLE     = aws_dynamodb_table.knowledge.name
+      MAX_QUESTION_CHARS  = "500"
+      RELEVANCE_THRESHOLD = "0.55" # initial value, re-tune empirically with curl tests
+      TOP_K               = "3"
     }
   }
 }

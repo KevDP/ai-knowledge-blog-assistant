@@ -15,3 +15,8 @@ output "cloudwatch_log_group" {
   description = "Log group del Lambda en CloudWatch"
   value       = aws_cloudwatch_log_group.eva_logs.name
 }
+
+output "knowledge_table_name" {
+  description = "DynamoDB table holding the knowledge embeddings (Phase 1c)"
+  value       = aws_dynamodb_table.knowledge.name
+}
