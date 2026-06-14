@@ -12,6 +12,12 @@ variable "bedrock_model_id" {
   default     = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 }
 
+variable "titan_model_id" {
+  description = "Bedrock Titan Embeddings v2 model ID. Used for query and document vectorization in the RAG pipeline."
+  type        = string
+  default     = "amazon.titan-embed-text-v2:0"
+}
+
 variable "monthly_budget_usd" {
   description = "monthly budget in usd. Alarms set in 50% / 80% / 100% (forecasted)."
   type        = number

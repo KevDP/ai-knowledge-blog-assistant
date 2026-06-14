@@ -48,3 +48,26 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
   role   = aws_iam_role.lambda_exec.id
   policy = data.aws_iam_policy_document.lambda_bedrock.json
 }
+
+# DynamoDB read on the knowledge table (Phase 1c)
+# Lambda only reads - ingest writes via GitHub Actions, not via Lambda.
+# No write permission here means a compromised Lambda cannot tamper with
+# the knowledge base.
+
+data "aws_iam_policy_document" "lambda_ddb" {
+  statement {
+    actions = [
+      "dynamodb:Scan",
+      "dynamodb:GetItem",
+      "dynamodb:BatchGetItem",
+      "dynamodb:DescribeTable",
+    ]
+    resources = [aws_dynamodb_table.knowledge.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_ddb" {
+  name   = "${local.name_prefix}-lambda-ddb-read"
+  role   = aws_iam_role.lambda_exec.id
+  policy = data.aws_iam_policy_document.lambda_ddb.json
+}
