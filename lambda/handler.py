@@ -1,28 +1,34 @@
 """
-Lambda handler - Phase 1c: RAG pipeline (Titan + DynamoDB + Claude Haiku).
+Lambda handler - Phase 1.4: RAG pipeline + response cache.
 
-End-to-end retrieval-augmented generation:
-1. Embed user question via Bedrock Titan v2
-2. Load all knowledge chunks from DDB (scanned on cold start, cached after)
-3. Cosine similarity, top-k retrieval
-4. Relevance gate - off-topic returns canned response without invoking Claude
-5. Build context, invoke Claude Haiku 4.5 with system prompt + retrieved chunks
-6. Structured log of scores + tokens + cost for monitoring and threshold tuning
+End-to-end retrieval-augmented generation with read-through cache:
+1. Validate input (defensive parsing, length cap)
+2. Hash question, GetItem from cache table
+3. CACHE HIT  -> return cached.answer (cost saving)
+   CACHE MISS -> continue
+4. Scan knowledge chunks (cached in container memory after cold start)
+5. Cosine top-k retrieval
+6. Relevance gate - off-topic returns canned response, NOT cached
+7. Invoke Claude Haiku 4.5 with system prompt + retrieved chunks
+8. PutItem to cache with TTL = now + 24h
+9. Structured log of hit/miss + scores + tokens + cost
 
-API contract (unchanged from 1b):
+API contract:
     POST /eva
     body: {"question": "..."}
 
-    200 OK : {"answer": "...", "off_topic": bool, "usage": {...}, "sources": [...]}
+    200 OK : {"answer": "...", "off_topic": bool, "cached": bool, "usage": {...}, "sources": [...]}
     400 BR : {"error": "..."}
     500 ISE: {"error": "internal error"}
 """
 import base64
+import hashlib
 import json
 import logging
 import math
 import os
 import struct
+import time
 
 import boto3
 
@@ -33,21 +39,22 @@ logger.setLevel(logging.INFO)
 BEDROCK_MODEL_ID = os.environ["BEDROCK_MODEL_ID"]
 TITAN_MODEL_ID = os.environ.get("TITAN_MODEL_ID", "amazon.titan-embed-text-v2:0")
 KNOWLEDGE_TABLE = os.environ["KNOWLEDGE_TABLE"]
+CACHE_TABLE = os.environ["CACHE_TABLE"]
 MAX_QUESTION_CHARS = int(os.environ.get("MAX_QUESTION_CHARS", "500"))
-RELEVANCE_THRESHOLD = float(os.environ.get("RELEVANCE_THRESHOLD", "0.55"))
+RELEVANCE_THRESHOLD = float(os.environ.get("RELEVANCE_THRESHOLD", "0.25"))
 TOP_K = int(os.environ.get("TOP_K", "3"))
+CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", "86400"))
 
 # Pricing (USD per 1M tokens). Update with model changes or the cost log lies.
 PRICE_CLAUDE_INPUT_PER_M = 1.0   # Haiku 4.5 input
 PRICE_CLAUDE_OUTPUT_PER_M = 5.0  # Haiku 4.5 output
-PRICE_TITAN_PER_M = 0.02         # Titan v2 input (no output - it's embeddings)
+PRICE_TITAN_PER_M = 0.02         # Titan v2 input
 
 # Module-level boto3 clients (reused across warm invocations).
 bedrock = boto3.client("bedrock-runtime")
 ddb = boto3.client("dynamodb")
 
 # Chunk cache populated on first invocation, kept for container lifetime.
-# Deploys kill containers, so any knowledge update propagates after re-deploy.
 _chunks_cache = None
 
 
@@ -82,9 +89,51 @@ def _decode_vector(b64_str: str) -> list:
     return list(struct.unpack(f"{len(data) // 4}f", data))
 
 
+def _hash_question(question: str) -> str:
+    """SHA256 of stripped question. Case-preserving (acronyms like AWS vs aws
+    can carry meaning). For loose matching, lowercase before hashing. We
+    chose conservative to avoid false cache hits."""
+    return hashlib.sha256(question.encode("utf-8")).hexdigest()
+
+
+def _cache_get(q_hash: str) -> dict | None:
+    """Return cached entry if exists AND not expired. None on miss/expired.
+    DDB TTL cleanup is eventually consistent (up to 48h lag), so we double-
+    check the ttl field in code to avoid serving stale items."""
+    response = ddb.get_item(
+        TableName=CACHE_TABLE,
+        Key={"question_hash": {"S": q_hash}},
+    )
+    item = response.get("Item")
+    if not item:
+        return None
+    ttl = int(item.get("ttl", {}).get("N", "0"))
+    if ttl <= int(time.time()):
+        return None  # expired, treat as miss
+    return {
+        "answer": item["answer"]["S"],
+        "sources": json.loads(item["sources_json"]["S"]),
+        "ttl_remaining": ttl - int(time.time()),
+    }
+
+
+def _cache_put(q_hash: str, question: str, answer: str, sources: list) -> None:
+    """Store entry with TTL = now + CACHE_TTL_SECONDS. Idempotent (same hash
+    overwrites previous entry, refreshing the TTL)."""
+    ddb.put_item(
+        TableName=CACHE_TABLE,
+        Item={
+            "question_hash": {"S": q_hash},
+            "question": {"S": question[:500]},  # safety cap, also our input cap
+            "answer": {"S": answer},
+            "sources_json": {"S": json.dumps(sources)},
+            "ttl": {"N": str(int(time.time()) + CACHE_TTL_SECONDS)},
+        },
+    )
+
+
 def _load_chunks() -> list:
-    """Scan DDB once per container, return cached list afterward.
-    Each chunk: {chunk_id, source, topic, text, embedding (list[float])}."""
+    """Scan knowledge table once per container, return cached list afterward."""
     global _chunks_cache
     if _chunks_cache is not None:
         return _chunks_cache
@@ -113,7 +162,7 @@ def _load_chunks() -> list:
 
 
 def _embed_query(text: str) -> tuple:
-    """Embed query via Titan v2, returns (normalized_vector, token_count)."""
+    """Embed via Titan v2, returns (normalized_vector, token_count)."""
     response = bedrock.invoke_model(
         modelId=TITAN_MODEL_ID,
         body=json.dumps({"inputText": text}),
@@ -127,8 +176,8 @@ def _embed_query(text: str) -> tuple:
 
 
 def _top_k(query_vec: list, chunks: list, k: int) -> list:
-    """Return list of (chunk, score) sorted by score descending.
-    Both query and stored vectors are pre-normalized, so dot product = cosine."""
+    """Returns [(chunk, score)] sorted desc. Both vectors pre-normalized so
+    dot product = cosine similarity."""
     scored = []
     for chunk in chunks:
         score = sum(q * e for q, e in zip(query_vec, chunk["embedding"]))
@@ -138,7 +187,7 @@ def _top_k(query_vec: list, chunks: list, k: int) -> list:
 
 
 def _build_context(top_chunks: list) -> str:
-    """Format top-k chunks as a context block for Claude."""
+    """Format top-k chunks as context block for Claude."""
     return "\n\n".join(
         f"[source: {c['source']} | topic: {c['topic']}]\n{c['text']}"
         for c, _ in top_chunks
@@ -167,7 +216,31 @@ def lambda_handler(event, context):
     if len(question) > MAX_QUESTION_CHARS:
         return _resp(400, {"error": f"Question too long ({len(question)} chars, max {MAX_QUESTION_CHARS})"})
 
-    # ----- Embed query (Titan) -----------------------------------------------
+    # ----- Cache check (Phase 1.4) -------------------------------------------
+    q_hash = _hash_question(question)
+    try:
+        cached = _cache_get(q_hash)
+    except Exception:
+        # Cache failure is non-fatal: log, continue without cache.
+        # Resilience trade-off: prefer slow response over total failure.
+        logger.exception("cache_get_failed")
+        cached = None
+
+    if cached is not None:
+        logger.info(json.dumps({
+            "event": "cache_hit",
+            "question_hash": q_hash[:16],  # truncate for log readability
+            "ttl_remaining": cached["ttl_remaining"],
+        }))
+        return _resp(200, {
+            "answer": cached["answer"],
+            "off_topic": False,
+            "cached": True,
+            "usage": {"embed_tokens": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
+            "sources": cached["sources"],
+        })
+
+    # ----- Cache miss: embed query (Titan) -----------------------------------
     try:
         query_vec, embed_tokens = _embed_query(question)
     except Exception:
@@ -182,7 +255,6 @@ def lambda_handler(event, context):
         return _resp(500, {"error": "Internal error loading knowledge"})
 
     if not chunks:
-        # Knowledge base empty - probably the ingest step in CI did not run.
         logger.error("knowledge_empty")
         return _resp(500, {"error": "Knowledge base is empty"})
 
@@ -191,11 +263,12 @@ def lambda_handler(event, context):
     embed_cost = embed_tokens * PRICE_TITAN_PER_M / 1_000_000
 
     # ----- Relevance gate (Layer 1 of cost defense) --------------------------
-    # Off-topic queries return canned response WITHOUT invoking Claude.
-    # Logs include best_score so threshold can be re-tuned empirically.
+    # Off-topic queries return canned response, NOT cached (PutItem cost would
+    # exceed the embed cost we'd save on hit - net negative).
     if best_score < RELEVANCE_THRESHOLD:
         logger.info(json.dumps({
             "event": "off_topic_blocked",
+            "cache_event": "miss",
             "best_score": round(best_score, 4),
             "threshold": RELEVANCE_THRESHOLD,
             "top_sources": [c["source"] for c, _ in top],
@@ -205,12 +278,8 @@ def lambda_handler(event, context):
         return _resp(200, {
             "answer": CANNED_OFF_TOPIC,
             "off_topic": True,
-            "usage": {
-                "embed_tokens": embed_tokens,
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "cost_usd": round(embed_cost, 6),
-            },
+            "cached": False,
+            "usage": {"embed_tokens": embed_tokens, "input_tokens": 0, "output_tokens": 0, "cost_usd": round(embed_cost, 6)},
         })
 
     # ----- Build context + invoke Claude -------------------------------------
@@ -234,7 +303,6 @@ def lambda_handler(event, context):
         logger.exception("bedrock_invoke_failed")
         return _resp(500, {"error": "Internal error invoking model"})
 
-    # ----- Parse Claude response ---------------------------------------------
     try:
         payload = json.loads(response["body"].read())
         answer = payload["content"][0]["text"]
@@ -247,29 +315,38 @@ def lambda_handler(event, context):
 
     cost_claude = (in_tok * PRICE_CLAUDE_INPUT_PER_M + out_tok * PRICE_CLAUDE_OUTPUT_PER_M) / 1_000_000
     cost_total = cost_claude + embed_cost
+    sources_list = [c["source"] for c, _ in top]
 
-    # Structured log: retrieval scores + tokens + cost.
-    # Use CloudWatch Insights to tune threshold and analyze patterns.
+    # ----- Cache the response (only on successful Claude call) ---------------
+    try:
+        _cache_put(q_hash, question, answer, sources_list)
+    except Exception:
+        # Cache write failure is non-fatal: log, return answer anyway.
+        # User got their answer; next time same question will still cache-miss.
+        logger.exception("cache_put_failed")
+
     logger.info(json.dumps({
         "event": "rag_invocation",
+        "cache_event": "miss",
         "model": BEDROCK_MODEL_ID,
         "input_tokens": in_tok,
         "output_tokens": out_tok,
         "embed_tokens": embed_tokens,
         "cost_usd": round(cost_total, 6),
         "best_score": round(best_score, 4),
-        "top_sources": [c["source"] for c, _ in top],
+        "top_sources": sources_list,
         "question_chars": len(question),
     }))
 
     return _resp(200, {
         "answer": answer,
         "off_topic": False,
+        "cached": False,
         "usage": {
             "embed_tokens": embed_tokens,
             "input_tokens": in_tok,
             "output_tokens": out_tok,
             "cost_usd": round(cost_total, 6),
         },
-        "sources": [c["source"] for c, _ in top],
+        "sources": sources_list,
     })
