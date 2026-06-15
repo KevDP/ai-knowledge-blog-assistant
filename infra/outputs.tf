@@ -17,6 +17,11 @@ output "cloudwatch_log_group" {
 }
 
 output "knowledge_table_name" {
-  description = "DynamoDB table holding the knowledge embeddings (Phase 1c)"
+  description = "DynamoDB table holding the knowledge embeddings (Phase 1.3)"
   value       = aws_dynamodb_table.knowledge.name
+}
+
+output "cache_table_name" {
+  description = "DynamoDB table for response cache (Phase 1.4)"
+  value       = aws_dynamodb_table.cache.name
 }

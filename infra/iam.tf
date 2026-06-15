@@ -49,8 +49,8 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
   policy = data.aws_iam_policy_document.lambda_bedrock.json
 }
 
-# DynamoDB read on the knowledge table (Phase 1c)
-# Lambda only reads - ingest writes via GitHub Actions, not via Lambda.
+# DynamoDB read on the knowledge table
+# Lambda only reads, ingest writes via GitHub Actions, not via Lambda.
 # No write permission here means a compromised Lambda cannot tamper with
 # the knowledge base.
 
@@ -70,4 +70,24 @@ resource "aws_iam_role_policy" "lambda_ddb" {
   name   = "${local.name_prefix}-lambda-ddb-read"
   role   = aws_iam_role.lambda_exec.id
   policy = data.aws_iam_policy_document.lambda_ddb.json
+}
+
+# Lambda perform read + write here.
+# Different from knowledge table (read-only): cache items are produced by
+# the Lambda itself as a side effect of serving uncached queries.
+
+data "aws_iam_policy_document" "lambda_cache" {
+  statement {
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+    ]
+    resources = [aws_dynamodb_table.cache.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_cache" {
+  name   = "${local.name_prefix}-lambda-cache-rw"
+  role   = aws_iam_role.lambda_exec.id
+  policy = data.aws_iam_policy_document.lambda_cache.json
 }

@@ -26,13 +26,17 @@ resource "aws_lambda_function" "eva" {
 
   environment {
     variables = {
-      PHASE               = "1c"
-      BEDROCK_MODEL_ID    = var.bedrock_model_id
-      TITAN_MODEL_ID      = var.titan_model_id
-      KNOWLEDGE_TABLE     = aws_dynamodb_table.knowledge.name
-      MAX_QUESTION_CHARS  = "500"
-      RELEVANCE_THRESHOLD = "0.55" # initial value, re-tune empirically with curl tests
+      PHASE              = "1.4"
+      BEDROCK_MODEL_ID   = var.bedrock_model_id
+      TITAN_MODEL_ID     = var.titan_model_id
+      KNOWLEDGE_TABLE    = aws_dynamodb_table.knowledge.name
+      CACHE_TABLE        = aws_dynamodb_table.cache.name
+      MAX_QUESTION_CHARS = "500"
+      # Asymmetric margin (more buffer on off-topic side) 
+      # off-topic margin (~0.10 avg) - on-topic margin ~0.30.
+      RELEVANCE_THRESHOLD = "0.25"
       TOP_K               = "3"
+      CACHE_TTL_SECONDS   = "86400" # 24h
     }
   }
 }
