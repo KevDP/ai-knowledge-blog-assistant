@@ -13,10 +13,16 @@ resource "aws_apigatewayv2_api" "eva" {
   name          = "${local.name_prefix}-eva-api"
   protocol_type = "HTTP"
 
-  # CORS temporary opened, it allows to local test with curl
-  # When necessary, allow_origins parameter will lists autorized domains
+  # CORS restricted to kev-blog production + local dev (Phase 1.6)
+  # Browsers enforce; curl ignores CORS so direct API testing still works.
+  # Origins are full schemes - "*" wildcards are disallowed when credentials
+  # are involved, and exact match is safer regardless.
   cors_configuration {
-    allow_origins = ["*"]
+    allow_origins = [
+      "https://kevdelgado.com",
+      "https://www.kevdelgado.com",
+      "http://localhost:3000",
+    ]
     allow_methods = ["POST", "OPTIONS"]
     allow_headers = ["content-type"]
     max_age       = 300
