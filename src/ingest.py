@@ -14,6 +14,7 @@ Diseño:
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import TypedDict
@@ -21,8 +22,29 @@ from typing import TypedDict
 from sentence_transformers import SentenceTransformer
 
 ROOT = Path(__file__).resolve().parent.parent
-KNOWLEDGE_DIR = ROOT / "knowledge"
 INDEX_PATH = ROOT / "embeddings.json"
+
+
+def _resolve_knowledge_dir() -> Path:
+    """
+    Directorio de la knowledge base. Prioridad:
+      1. $EVA_KNOWLEDGE_DIR       (override explícito)
+      2. ./knowledge             (data REAL de Kevin — gitignored, no se versiona)
+      3. ./knowledge_demo        (persona SINTÉTICA — sí versionada)
+
+    Efecto: local con data real usa knowledge/; un clon público (sin knowledge/)
+    cae a knowledge_demo/ automáticamente, sin configuración. Así el repo es
+    reproducible por cualquiera sin exponer datos reales.
+    """
+    env = os.environ.get("EVA_KNOWLEDGE_DIR")
+    if env:
+        return ROOT / env
+    if (ROOT / "knowledge").is_dir():
+        return ROOT / "knowledge"
+    return ROOT / "knowledge_demo"
+
+
+KNOWLEDGE_DIR = _resolve_knowledge_dir()
 
 # Model: BAAI/bge-small-en-v1.5 — 384-dim, ~130MB, CPU-friendly.
 # For querying BGE recommends instruction prefix;
