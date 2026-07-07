@@ -22,8 +22,7 @@
   {
     "id": "projects",
     "question": "what projects has alex built?",
-    "expect": { "route": "normal", "off_topic": false, "sources_include": "projects.md" },
-    "known_limitation": "projects vs work-experience semantic overlap ('built X') — embedding retrieval can't separate them; pending a reranking layer (Part 3)"
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "projects.md" }
   },
   {
     "id": "contact",

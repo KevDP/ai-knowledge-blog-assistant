@@ -1,20 +1,20 @@
 """
 chat.py
 
-CLI interactivo para EVA. Fase 2: ahora corre sobre el grafo LangGraph
-(src.agent), no sobre retrieve()+answer() directo.
+Interactive CLI for EVA. Phase 2: runs over the LangGraph pipeline
+(src.agent) rather than calling retrieve() + answer() directly.
 
-Novedades vs Fase 0:
-- Mantiene el HISTORIAL de la conversación entre turnos (memoria). El grafo
-  es stateless; el estado vive aquí, en el REPL. Así se porta a Lambda sin
-  cambios: allá el historial vendría del request o de DynamoDB.
-- Muestra la decisión de routing (route/grade/score/retries/cost) en un panel
-  tenue, para que se vea el comportamiento "agéntico".
+What is new vs Phase 0:
+- Maintains conversation HISTORY across turns (memory). The graph is
+  stateless; state lives here in the REPL. That way it ports to Lambda
+  without changes (history would come from the request or DynamoDB there).
+- Shows the routing decision (route/grade/score/retries/cost) in a dim
+  trace panel so the "agentic" behavior is visible when demoing.
 
-Uso:
+Usage:
     python -m src.chat
     python -m src.chat --once "what is kevin's experience?"
-    python -m src.chat --show-trace       # muestra el routing en cada turno
+    python -m src.chat --show-trace       # show routing on every turn
 """
 from __future__ import annotations
 
@@ -29,13 +29,13 @@ from src.agent import run_turn
 
 console = Console()
 
-# El caller acota el input igual que en Fase 0. El grafo asume que la pregunta
-# ya pasó este gate barato antes de gastar en embeddings o LLM.
+# Caller-side length cap, mirroring Phase 0. The graph assumes the question
+# has already passed this cheap gate before spending on embeddings or LLM.
 MAX_QUESTION_CHARS = 500
 
 
 def _trace_line(result: dict) -> str:
-    """Resumen de una línea de la decisión del grafo para este turno."""
+    """One-line summary of the graph's decision for this turn."""
     return (
         f"route={result.get('route', '—')}  "
         f"grade={result.get('grade', '—')}  "
@@ -59,18 +59,18 @@ def run_and_print(
     show_trace: bool = False,
 ) -> list[dict]:
     """
-    Corre un turno, imprime la respuesta y devuelve el historial ACTUALIZADO.
-    El historial se pasa por valor y se regresa extendido — el REPL lo reusa
-    en el siguiente turno para dar memoria.
+    Runs one turn, prints the answer, and returns the UPDATED history.
+    History is passed by value and returned extended.
+    The REPL reuses it on the next turn to provide memory.
     """
     if len(question) > MAX_QUESTION_CHARS:
         console.print(
-            f"[yellow]Pregunta muy larga ({len(question)} chars). "
-            f"Límite: {MAX_QUESTION_CHARS}.[/yellow]"
+            f"[yellow]Question too long ({len(question)} chars). "
+            f"Limit: {MAX_QUESTION_CHARS}.[/yellow]"
         )
         return history
 
-    with console.status("[dim]pensando (routing → retrieve → answer)..."):
+    with console.status("[dim]thinking (routing → retrieve → answer)..."):
         result = run_turn(question, history=history)
 
     answer_text = result.get("answer", "")
@@ -84,8 +84,8 @@ def run_and_print(
         console.print("[dim]Sources:[/dim]")
         console.print(f"[dim]{_format_sources(sources)}[/dim]")
 
-    # Extiende el historial: turno del usuario + turno del asistente (con fuentes,
-    # para que las meta-queries "show sources" puedan trazarlas después).
+    # Extend history: user turn + assistant turn (with sources so later
+    # meta-queries like "show sources" can trace them).
     new_history = history + [
         {"role": "user", "content": question},
         {"role": "assistant", "content": answer_text, "sources": sources},
@@ -95,10 +95,10 @@ def run_and_print(
 
 def repl(*, show_sources: bool, show_trace: bool) -> None:
     console.print(Panel(
-        "EVA — RAG agent demo (Fase 2)\n"
-        "Con memoria de conversación. Prueba un follow-up:\n"
-        "  'who is kevin?'  →  'what did he study?'\n"
-        "Escribe 'exit' o Ctrl-C para salir.",
+        "EVA - RAG agent demo (Phase 2)\n"
+        "With conversation memory. Try a follow-up:\n"
+        "  'who is kevin?' + 'what did he study?'\n"
+        "Type 'exit' or Ctrl-C to quit.",
         border_style="cyan",
     ))
     history: list[dict] = []
@@ -123,12 +123,12 @@ def repl(*, show_sources: bool, show_trace: bool) -> None:
 
 
 def main() -> None:
-    load_dotenv()  # lee .env del cwd
+    load_dotenv()  # loads .env from the current working directory
 
-    parser = argparse.ArgumentParser(description="EVA RAG agent CLI (Fase 2)")
-    parser.add_argument("--once", type=str, default=None, help="Pregunta única y sale")
-    parser.add_argument("--show-sources", action="store_true", help="Imprime las fuentes usadas")
-    parser.add_argument("--show-trace", action="store_true", help="Imprime la decisión de routing")
+    parser = argparse.ArgumentParser(description="EVA RAG agent CLI (Phase 2+)")
+    parser.add_argument("--once", type=str, default=None, help="Single question, then exit")
+    parser.add_argument("--show-sources", action="store_true", help="Print the sources used")
+    parser.add_argument("--show-trace", action="store_true", help="Print the routing decision")
     args = parser.parse_args()
 
     if args.once:

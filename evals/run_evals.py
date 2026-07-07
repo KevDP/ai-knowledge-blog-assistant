@@ -1,28 +1,27 @@
 """
-run_evals.py — Regression testing del agente EVA (Fase 2).
+run_evals.py - Regression testing for the EVA agent (Phase 2).
 
-Corre un golden set de queries contra el grafo LangGraph y verifica sus
-DECISIONES (routing, off-topic gating, top source, score) — no la calidad
-prosística de la respuesta. Eso es deliberado:
+Runs a golden set of queries against the LangGraph pipeline and verifies its
+behavior according to decisions (routing, off-topic gating, retrieval recall, memory).
+That is deliberate:
 
-  - Las decisiones del agente son lo que regresiona cuando toco un umbral,
-    un prompt de reformulación, o el router. Son deterministas-ish y baratas
-    de verificar.
-  - Juzgar calidad de la respuesta requeriría un LLM-as-judge (costoso, no
-    determinista). Eso queda para una Parte 3, si hace falta.
+  - The agent's decisions are what regresses when I tweak a threshold, a
+    reformulation prompt, or the router. They are (mostly) deterministic and
+    cheap to verify.
+  - Judging answer quality would require an LLM-as-judge (costly and non-deterministic).
 
-Cada caso puede ser:
-  - "question": una sola pregunta (turno único), o
-  - "conversation": lista de mensajes de usuario; se reproducen en orden para
-    construir historial real, y se verifica el ÚLTIMO turno (prueba de memoria).
+Each case can be:
+  - "question": a single-turn question
+  - "conversation": a list of user messages replayed in order to build real
+    history; the LAST turn is asserted (memory test).
 
-Uso:
+Usage:
     python -m evals.run_evals
     python -m evals.run_evals --verbose
 
-Nota de costo: correr esto invoca al LLM (answer + utilitarias). Con ~12 casos
-son unos centavos. El costo de las llamadas utilitarias se reporta al final;
-el de answer() se loggea por separado a stderr desde llm.py.
+Cost note: this invokes the LLM (answer + utility calls). With ~13 cases it
+costs a few cents. Utility-call cost is reported at the end; the answer()
+cost is logged separately to stderr from llm.py.
 """
 from __future__ import annotations
 
@@ -39,52 +38,53 @@ GOLDEN_PATH = Path(__file__).resolve().parent / "golden_set.json"
 
 
 def _is_off_topic(result: dict) -> bool:
-    """Un turno es off-topic si el grafo devolvió la respuesta enlatada."""
+    """A turn is off-topic if the graph returned the canned response."""
     return result.get("answer", "").strip() == CANNED_OFF_TOPIC.strip()
 
 
 def _check(result: dict, expect: dict) -> list[str]:
-    """Devuelve la lista de fallas (vacía = pasó)."""
+    """Returns the list of failures (empty = passed)."""
     failures: list[str] = []
 
     if "off_topic" in expect:
         got = _is_off_topic(result)
         if got != expect["off_topic"]:
-            failures.append(f"off_topic: esperaba {expect['off_topic']}, obtuve {got}")
+            failures.append(f"off_topic: expected {expect['off_topic']}, got {got}")
 
     if "route" in expect:
         got = result.get("route")
         if got != expect["route"]:
-            failures.append(f"route: esperaba '{expect['route']}', obtuve '{got}'")
+            failures.append(f"route: expected '{expect['route']}', got '{got}'")
 
     if "grade" in expect:
         got = result.get("grade")
         if got != expect["grade"]:
-            failures.append(f"grade: esperaba '{expect['grade']}', obtuve '{got}'")
+            failures.append(f"grade: expected '{expect['grade']}', got '{got}'")
 
     if "sources_include" in expect:
-        # Assertion de RAG correcta: ¿el doc correcto ENTRÓ al top-k (context
-        # window)? No exigimos que sea el #1 — que sea el ranking exacto es una
-        # nuance de precisión (territorio de reranking, Parte 3). Lo que importa
-        # para groundedness es que esté disponible para el LLM.
+        # Correct RAG assertion: did the right doc ENTER the top-k (context window)
+        # We do not require rank #1
+        # What matters for groundedness is that the doc is available to the LLM.
         sources = result.get("sources") or []
         got = [s["source"] for s in sources]
         if expect["sources_include"] not in got:
             failures.append(
-                f"sources_include: esperaba '{expect['sources_include']}' en {got}"
+                f"sources_include: expected '{expect['sources_include']}' in {got}"
             )
 
     if "min_score" in expect:
         got = result.get("best_score", 0.0)
         if got < expect["min_score"]:
-            failures.append(f"min_score: esperaba ≥{expect['min_score']}, obtuve {got:.3f}")
+            failures.append(f"min_score: expected ≥{expect['min_score']}, got {got:.3f}")
 
     return failures
 
 
 def _run_case(case: dict) -> dict:
-    """Reproduce el caso (turno único o conversación) y devuelve el resultado
-    del ÚLTIMO turno más el costo utilitario acumulado."""
+    """
+    Replays the case (single turn or conversation) and returns the result of
+    the LAST turn plus the accumulated utility cost.
+    """
     total_util_cost = 0.0
 
     if "conversation" in case:
@@ -110,7 +110,7 @@ def _run_case(case: dict) -> dict:
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(description="EVA agent eval runner")
-    parser.add_argument("--verbose", action="store_true", help="Imprime respuesta de cada caso")
+    parser.add_argument("--verbose", action="store_true", help="Print the answer for each case")
     args = parser.parse_args()
 
     cases = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
@@ -128,14 +128,12 @@ def main() -> None:
 
         if not failures:
             passed += 1
-            print(f"  ✓ {case['id']}")
+            print(f"  Passed {case['id']}")
         elif case.get("known_limitation"):
-            # Falla ESPERADA y documentada. No es una regresión — es un gap
-            # conocido con un fix planeado. Un eval maduro distingue "esto se
-            # rompió" de "esto todavía no lo arreglamos".
+            # this is expected as a documented failure.
             known_gaps += 1
-            print(f"  ⚠ {case['id']}  (known limitation)")
-            print(f"      → {case['known_limitation']}")
+            print(f"  Not passed {case['id']}  (known limitation)")
+            print(f"    {case['known_limitation']}")
             for f in failures:
                 print(f"      - {f}")
         else:
@@ -153,8 +151,8 @@ def main() -> None:
     print(f"  utility LLM cost: ${total_cost:.6f}")
     print(f"  (answer() cost logged separately to stderr)\n")
 
-    # La suite pasa si no hay fallas INESPERADAS. Los known limitations no
-    # cuentan como regresión — están rastreados para Parte 3 (reranking).
+    # The suite passes if there are no unexpected failures. 
+    # Known limitations do not count as a failure, they are tracked for a planned fix in the KB.
     raise SystemExit(0 if unexpected == 0 else 1)
 
 

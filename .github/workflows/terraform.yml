@@ -98,6 +98,7 @@ jobs:
         env:
           AWS_REGION: us-east-1
           KNOWLEDGE_TABLE: ai-kb-knowledge
+          CACHE_TABLE: ai-kb-cache
           KNOWLEDGE_BUCKET: ${{ secrets.KNOWLEDGE_BUCKET }}
           KNOWLEDGE_PREFIX: knowledge/
           TITAN_MODEL_ID: amazon.titan-embed-text-v2:0

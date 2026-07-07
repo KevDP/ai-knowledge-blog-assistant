@@ -44,13 +44,13 @@ def _load_model() -> SentenceTransformer:
 
 
 def _load_index() -> tuple[list[dict], np.ndarray]:
-    """Carga embeddings.json en memoria una sola vez."""
+    """Loads embeddings.json into memory once per process."""
     global _index_texts, _index_matrix
     if _index_texts is None or _index_matrix is None:
         if not INDEX_PATH.exists():
             raise FileNotFoundError(
-                f"Índice no encontrado en {INDEX_PATH}. "
-                "Corre primero: python -m src.ingest"
+                f"Index not found at {INDEX_PATH}. "
+                "Run first: python -m src.ingest"
             )
         raw = json.loads(INDEX_PATH.read_text(encoding="utf-8"))
         _index_texts = [{"text": c["text"], "source": c["source"], "topic": c["topic"]} for c in raw]
@@ -60,8 +60,8 @@ def _load_index() -> tuple[list[dict], np.ndarray]:
 
 def retrieve(query: str, k: int = 3) -> list[RetrievedChunk]:
     """
-    Devuelve los k chunks con mayor similitud coseno respecto a `query`.
-    Resultado ordenado de mayor a menor score.
+    Returns the k chunks with the highest cosine similarity to `query`.
+    Ordered from highest to lowest score.
     """
     if not query.strip():
         return []
@@ -69,7 +69,7 @@ def retrieve(query: str, k: int = 3) -> list[RetrievedChunk]:
     model = _load_model()
     texts, matrix = _load_index()
 
-    # Normalizing, dot product = cos.
+    # normalizing, dot product = cos.
     q_vec = model.encode(
         [BGE_QUERY_INSTRUCTION + query],
         normalize_embeddings=True,
@@ -95,7 +95,7 @@ def retrieve(query: str, k: int = 3) -> list[RetrievedChunk]:
 
 
 if __name__ == "__main__":
-    # Smoke test
+    # test
     import sys
     q = " ".join(sys.argv[1:]) or "what is kevin's experience?"
     print(f"Query: {q}\n")
