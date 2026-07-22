@@ -5,15 +5,16 @@ Read all the markdown files ./knowledge/, start chunking process,
 calculate embeddings with sentence-transformers (locally) show
 the result via ./embeddings.json.
 
-Diseño:
-- Single responsibility: This file just generates the index.
-- It is executed each time that knowledge/ gets changed.
-- Frontmatter YAML it is discarged from embeddings but `topic` it is still saved
-  `language` as debugging metadata and future filters.
+Design:
+- Single responsibility: this file just generates the index.
+- Runs each time knowledge/ changes.
+- Frontmatter YAML is stripped from embeddings but `topic` is kept as
+  metadata for debugging and future filters.
 """
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import TypedDict
@@ -21,10 +22,31 @@ from typing import TypedDict
 from sentence_transformers import SentenceTransformer
 
 ROOT = Path(__file__).resolve().parent.parent
-KNOWLEDGE_DIR = ROOT / "knowledge"
 INDEX_PATH = ROOT / "embeddings.json"
 
-# Model: BAAI/bge-small-en-v1.5 — 384-dim, ~130MB, CPU-friendly.
+
+def _resolve_knowledge_dir() -> Path:
+    """
+    Knowledge-base directory. Resolution order:
+      1. $EVA_KNOWLEDGE_DIR   (explicit override)
+      2. ./knowledge          (REAL data - gitignored, not versioned)
+      3. ./knowledge_demo     (SYNTHETIC persona - versioned in the public repo)
+
+    Effect: local with real data uses knowledge/; a public clone (no knowledge/)
+    falls back to knowledge_demo/ automatically, no configuration required.
+    That way the repo is reproducible by anyone without exposing real data.
+    """
+    env = os.environ.get("EVA_KNOWLEDGE_DIR")
+    if env:
+        return ROOT / env
+    if (ROOT / "knowledge").is_dir():
+        return ROOT / "knowledge"
+    return ROOT / "knowledge_demo"
+
+
+KNOWLEDGE_DIR = _resolve_knowledge_dir()
+
+# Model: BAAI/bge-small-en-v1.5 (384-dim, ~130MB, CPU-friendly).
 # For querying BGE recommends instruction prefix;
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 
@@ -40,7 +62,7 @@ class Chunk(TypedDict):
 
 
 def _parse_frontmatter(raw: str) -> tuple[dict[str, str], str]:
-    """Devuelve (metadata, body). Sin frontmatter → ({}, raw)."""
+    """Returns (metadata, body). Without frontmatter → ({}, raw)."""
     match = FRONTMATTER_RE.match(raw)
     if not match:
         return {}, raw
@@ -55,19 +77,19 @@ def _parse_frontmatter(raw: str) -> tuple[dict[str, str], str]:
 
 def _chunk_paragraphs(body: str, min_chars: int = 80) -> list[str]:
     """
-    Chunking ingenuo por párrafo (separador `\\n\\n`). Filtra párrafos muy
-    cortos (líneas sueltas de cabecera) para no contaminar el índice con ruido.
+    Naive per-paragraph chunking (separator `\\n\\n`). Filters out very short
+    paragraphs (stray heading lines) to keep noise out of the index.
 
-    Nota honesta: esto es lo más simple que funciona para un knowledge base
-    pequeño. Si más adelante el índice crece (>1k chunks) o las respuestas
-    pierden contexto entre párrafos, se reemplaza por un chunker con overlap.
+    Honest note: this is the simplest thing that works for a small knowledge
+    base. If the index grows (>1k chunks) or answers lose context across
+    paragraphs, swap this for an overlap-aware chunker.
     """
     paragraphs = [p.strip() for p in body.split("\n\n")]
     return [p for p in paragraphs if len(p) >= min_chars]
 
 
 def load_documents() -> list[tuple[str, dict[str, str], list[str]]]:
-    """Lee knowledge/*.md y devuelve [(source, meta, chunks), ...]."""
+    """Reads knowledge/*.md and returns [(source, meta, chunks), ...]."""
     docs = []
     for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
         raw = path.read_text(encoding="utf-8")
@@ -79,17 +101,17 @@ def load_documents() -> list[tuple[str, dict[str, str], list[str]]]:
 
 def _build_embedding_text(chunk: str, source: str, topic: str) -> str:
     """
-    Contextual retrieval (Anthropic pattern): el texto que se EMBEBE incluye
-    metadata explícita (source, topic) para que el embedding capture el
-    concepto del documento, no solo el contenido literal del fragmento.
+    Contextual retrieval (Anthropic pattern): the text that is EMBEDDED includes
+    explicit metadata (source, topic) so the embedding captures the document's
+    concept, not just the raw fragment content.
 
-    El texto que se PASA a Claude sigue siendo solo `chunk` — no se inflan
-    los tokens del prompt en runtime. Solo cambia la representación vectorial.
+    The text that is PASSED to Claude is still just `chunk`, no prompt-token
+    bloat at runtime. Only the vector representation changes.
 
-    Por qué importa: "## Languages\\n- Python — 4 years" como texto crudo no
-    matchea bien con un query como "what are kevin's main skills?". Pero
+    Why it matters: "## Languages\\n- Python - 4 years" as raw text does not
+    match well against a query like "what are kevin's main skills?". But
     "Document: skills.md | Topic: skills | Content: ## Languages\\n- Python..."
-    sí matchea — el embedding aprende la asociación skills↔contenido técnico.
+    does - the embedding learns the association skills - technical content.
     """
     return f"Document: {source} | Topic: {topic} | Content: {chunk}"
 

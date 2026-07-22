@@ -35,6 +35,7 @@ import boto3
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 TITAN_MODEL_ID = os.environ.get("TITAN_MODEL_ID", "amazon.titan-embed-text-v2:0")
 KNOWLEDGE_TABLE = os.environ.get("KNOWLEDGE_TABLE", "ai-kb-knowledge")
+CACHE_TABLE = os.environ.get("CACHE_TABLE", "ai-kb-cache")
 KNOWLEDGE_BUCKET = os.environ["KNOWLEDGE_BUCKET"]  # required, no default
 KNOWLEDGE_PREFIX = os.environ.get("KNOWLEDGE_PREFIX", "knowledge/")
 MIN_CHARS = int(os.environ.get("MIN_CHARS", "40"))
@@ -105,7 +106,7 @@ def chunk_by_sections(body: str, min_chars: int = MIN_CHARS) -> list[str]:
     h1_match = H1_RE.search(body)
     h1_prefix = f"# {h1_match.group(1).strip()}\n\n" if h1_match else ""
 
-    # Split on lines starting with "## " — lookahead keeps the marker in matches.
+    # Split on lines starting with "## "
     sections = re.split(r"(?m)^(?=## )", body)
 
     chunks = []
@@ -115,11 +116,8 @@ def chunk_by_sections(body: str, min_chars: int = MIN_CHARS) -> list[str]:
             continue
 
         if section.startswith("## "):
-            # Regular h2 section. Prepend h1 for context.
             chunk = f"{h1_prefix}{section}"
         else:
-            # Preamble before any ## (or whole file if no ## present).
-            # Use higher bar (2x min_chars) — preamble noise hurts more than missing it.
             if len(section) < min_chars * 2:
                 continue
             # Don't re-prepend h1 if section already starts with the h1 line.
@@ -158,6 +156,46 @@ def build_embed_text(chunk: str, source: str, topic: str) -> str:
     return f"Document: {source} | Topic: {topic} | Content: {chunk}"
 
 
+def purge_cache() -> int:
+    """Delete every item in the response cache. Called after a successful
+    re-ingest so users don't get stale cached answers built from old chunks.
+
+    Without this, cache TTL (24h) keeps serving outdated info for up to a day
+    after a KB update. Purging is the cheapest way to guarantee consistency
+    between knowledge updates and what users see.
+
+    Idempotent and safe to run with empty cache. BatchWriteItem caps at 25
+    deletes per call, so we batch in chunks of 25.
+    """
+    print(f"\n[purge] scanning {CACHE_TABLE}...")
+    items = []
+    paginator = ddb.get_paginator("scan")
+    for page in paginator.paginate(
+        TableName=CACHE_TABLE,
+        ProjectionExpression="question_hash",
+    ):
+        items.extend(page.get("Items", []))
+
+    if not items:
+        print("[purge] cache already empty")
+        return 0
+
+    deleted = 0
+    for i in range(0, len(items), 25):
+        batch = items[i:i + 25]
+        ddb.batch_write_item(
+            RequestItems={
+                CACHE_TABLE: [
+                    {"DeleteRequest": {"Key": {"question_hash": it["question_hash"]}}}
+                    for it in batch
+                ]
+            }
+        )
+        deleted += len(batch)
+    print(f"[purge] deleted {deleted} cached items")
+    return deleted
+
+
 def main() -> None:
     knowledge_dir = download_knowledge_from_s3()
     md_files = sorted(knowledge_dir.glob("*.md"))
@@ -194,6 +232,11 @@ def main() -> None:
             total_chunks += 1
 
     print(f"\n[ingest] Wrote {total_chunks} chunks to {KNOWLEDGE_TABLE}")
+
+    # Atomic-ish KB refresh: purge cache AFTER chunks are in place. If purge
+    # fails the new chunks are still indexed (user gets fresh answers on
+    # cache miss). If purge succeeds but chunks failed, we don't get here.
+    purge_cache()
 
 
 if __name__ == "__main__":

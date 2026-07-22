@@ -1,0 +1,67 @@
+[
+  {
+    "id": "skills-basic",
+    "question": "what are alex's main skills?",
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "skills.md" }
+  },
+  {
+    "id": "who-is-alex",
+    "question": "who is alex?",
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "about.md" }
+  },
+  {
+    "id": "where-studied",
+    "question": "where did alex study?",
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "education.md" }
+  },
+  {
+    "id": "experience-nimbus",
+    "question": "what did alex do at Nimbus Analytics?",
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "experience.md" }
+  },
+  {
+    "id": "projects",
+    "question": "what projects has alex built?",
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "projects.md" }
+  },
+  {
+    "id": "contact",
+    "question": "how can I contact alex?",
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "contact.md" }
+  },
+  {
+    "id": "offtopic-pizza",
+    "question": "what is the best pizza in Rome?",
+    "expect": { "off_topic": true }
+  },
+  {
+    "id": "offtopic-weather",
+    "question": "what's the weather like today?",
+    "expect": { "off_topic": true }
+  },
+  {
+    "id": "offtopic-quantum",
+    "question": "explain quantum entanglement",
+    "expect": { "off_topic": true }
+  },
+  {
+    "id": "memory-followup-study",
+    "conversation": ["who is alex?", "where did they study?"],
+    "expect": { "off_topic": false, "sources_include": "education.md" }
+  },
+  {
+    "id": "memory-followup-work",
+    "conversation": ["tell me about alex", "where did they work?"],
+    "expect": { "off_topic": false, "sources_include": "experience.md" }
+  },
+  {
+    "id": "meta-sources",
+    "conversation": ["what are alex's skills?", "what are your sources?"],
+    "expect": { "route": "meta" }
+  },
+  {
+    "id": "meta-concise",
+    "conversation": ["who is alex?", "shorter please"],
+    "expect": { "route": "meta", "off_topic": false }
+  }
+]

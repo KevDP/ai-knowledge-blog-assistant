@@ -20,6 +20,9 @@ rich==13.9.4
 # Pin defensivo: anthropic 0.39.x no es compatible con httpx ≥0.28
 httpx<0.28
 
+# Fase 2 (capa de agente) — orquestación del grafo RAG.
+langgraph==0.2.60
+
 # ──────────────────────────────────────────────────────────────────────────
 # Fase 1 (deploy AWS) — agregar cuando lleguemos:
 #   boto3==1.35.x   (Bedrock + DynamoDB client)
