@@ -35,7 +35,7 @@ resource "aws_lambda_function" "eva" {
       # Asymmetric margin (more buffer on off-topic side) 
       # off-topic margin (~0.10 avg) - on-topic margin ~0.30.
       RELEVANCE_THRESHOLD = "0.25"
-      TOP_K               = "3"
+      TOP_K               = "5"
       CACHE_TTL_SECONDS   = "86400" # 24h
     }
   }
