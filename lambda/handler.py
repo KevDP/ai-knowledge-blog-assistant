@@ -44,6 +44,8 @@ MAX_QUESTION_CHARS = int(os.environ.get("MAX_QUESTION_CHARS", "500"))
 RELEVANCE_THRESHOLD = float(os.environ.get("RELEVANCE_THRESHOLD", "0.25"))
 TOP_K = int(os.environ.get("TOP_K", "5"))
 CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", "86400"))
+MAX_HISTORY_MESSAGES = 10  # cap on multi-turn payload (last 5 user+assistant pairs)
+FOLLOWUP_THRESHOLD_MULTIPLIER = 0.6  # relax off-topic gate when embed is enriched with prior turn
 
 # Pricing (USD per 1M tokens). Update with model changes or the cost log lies.
 PRICE_CLAUDE_INPUT_PER_M = 1.0   # Haiku 4.5 input
@@ -201,6 +203,37 @@ def _build_context(top_chunks: list) -> str:
     )
 
 
+def _parse_history(raw) -> list:
+    """Validate a list of {role, content} messages from the client and return
+    a sanitized copy capped at MAX_HISTORY_MESSAGES most-recent entries.
+    Drops anything malformed instead of failing (client bugs must not 500)."""
+    if not isinstance(raw, list):
+        return []
+    cleaned = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role not in ("user", "assistant"):
+            continue
+        if not isinstance(content, str) or not content.strip():
+            continue
+        cleaned.append({"role": role, "content": content.strip()[:2000]})
+    return cleaned[-MAX_HISTORY_MESSAGES:]
+
+
+def _build_embed_text(question: str, history: list) -> str:
+    """Enrich the query for embedding with the last two history messages so a
+    bare follow-up ("dime mas del segundo") inherits the topic of the previous
+    turn and clears the relevance gate."""
+    if not history:
+        return question
+    parts = [m["content"] for m in history[-2:]]
+    parts.append(question)
+    return " ".join(parts)
+
+
 def lambda_handler(event, context):
     # ----- Defensive input parsing -------------------------------------------
     raw_body = event.get("body") or "{}"
@@ -223,15 +256,22 @@ def lambda_handler(event, context):
     if len(question) > MAX_QUESTION_CHARS:
         return _resp(400, {"error": f"Question too long ({len(question)} chars, max {MAX_QUESTION_CHARS})"})
 
+    history = _parse_history(body.get("history"))
+
     # ----- Cache check (Phase 1.4) -------------------------------------------
+    # Skip cache when there's conversation history: hashing only the last
+    # question would collide across different prior contexts and return stale
+    # answers from unrelated conversations.
     q_hash = _hash_question(question)
-    try:
-        cached = _cache_get(q_hash)
-    except Exception:
-        # Cache failure is non-fatal: log, continue without cache.
-        # Resilience trade-off: prefer slow response over total failure.
-        logger.exception("cache_get_failed")
-        cached = None
+    cached = None
+    if not history:
+        try:
+            cached = _cache_get(q_hash)
+        except Exception:
+            # Cache failure is non-fatal: log, continue without cache.
+            # Resilience trade-off: prefer slow response over total failure.
+            logger.exception("cache_get_failed")
+            cached = None
 
     if cached is not None:
         logger.info(json.dumps({
@@ -248,8 +288,11 @@ def lambda_handler(event, context):
         })
 
     # ----- Cache miss: embed query (Titan) -----------------------------------
+    # Enrich embed input with prior turn so short follow-ups
+    # ("dime mas del segundo") retrieve the right chunks.
+    embed_input = _build_embed_text(question, history)
     try:
-        query_vec, embed_tokens = _embed_query(question)
+        query_vec, embed_tokens = _embed_query(embed_input)
     except Exception:
         logger.exception("titan_embed_failed")
         return _resp(500, {"error": "Internal error embedding query"})
@@ -272,12 +315,15 @@ def lambda_handler(event, context):
     # ----- Relevance gate (Layer 1 of cost defense) --------------------------
     # Off-topic queries return canned response, NOT cached (PutItem cost would
     # exceed the embed cost we'd save on hit - net negative).
-    if best_score < RELEVANCE_THRESHOLD:
+    # Follow-ups relax the threshold: the enriched embed input already carries
+    # the previous turn's topic, but shortcut queries still score lower.
+    threshold = RELEVANCE_THRESHOLD * FOLLOWUP_THRESHOLD_MULTIPLIER if history else RELEVANCE_THRESHOLD
+    if best_score < threshold:
         logger.info(json.dumps({
             "event": "off_topic_blocked",
             "cache_event": "miss",
             "best_score": round(best_score, 4),
-            "threshold": RELEVANCE_THRESHOLD,
+            "threshold": round(threshold, 4),
             "top_sources": [c["source"] for c, _ in top],
             "embed_tokens": embed_tokens,
             "embed_cost_usd": round(embed_cost, 6),
@@ -293,11 +339,12 @@ def lambda_handler(event, context):
     context_block = _build_context(top)
     user_content = f"Context about Kevin:\n---\n{context_block}\n---\n\nQuestion: {question}"
 
+    messages = list(history) + [{"role": "user", "content": user_content}]
     request_body = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 600,
         "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user_content}],
+        "messages": messages,
     }
 
     try:
@@ -325,12 +372,15 @@ def lambda_handler(event, context):
     sources_list = [c["source"] for c, _ in top]
 
     # ----- Cache the response (only on successful Claude call) ---------------
-    try:
-        _cache_put(q_hash, question, answer, sources_list)
-    except Exception:
-        # Cache write failure is non-fatal: log, return answer anyway.
-        # User got their answer; next time same question will still cache-miss.
-        logger.exception("cache_put_failed")
+    # Skip cache writes on multi-turn: same key would collide with single-turn
+    # answers and serve wrong context on subsequent hits (see cache_get above).
+    if not history:
+        try:
+            _cache_put(q_hash, question, answer, sources_list)
+        except Exception:
+            # Cache write failure is non-fatal: log, return answer anyway.
+            # User got their answer; next time same question will still cache-miss.
+            logger.exception("cache_put_failed")
 
     logger.info(json.dumps({
         "event": "rag_invocation",
