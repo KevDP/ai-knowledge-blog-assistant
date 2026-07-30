@@ -63,5 +63,25 @@
     "id": "meta-concise",
     "conversation": ["who is alex?", "shorter please"],
     "expect": { "route": "meta", "off_topic": false }
+  },
+  {
+    "id": "pronoun-coldstart",
+    "question": "what experience does he have?",
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "experience.md" }
+  },
+  {
+    "id": "name-variant-lastname",
+    "question": "what is Mercado's background?",
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "about.md" }
+  },
+  {
+    "id": "negative-capability-rust",
+    "question": "does Alex know Rust?",
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "skills.md" }
+  },
+  {
+    "id": "availability",
+    "question": "is Alex available for work?",
+    "expect": { "route": "normal", "off_topic": false, "sources_include": "contact.md" }
   }
 ]
