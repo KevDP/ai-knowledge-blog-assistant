@@ -13,6 +13,7 @@ End-to-end retrieval-augmented generation with read-through cache:
 8. PutItem to cache with TTL = now + 24h
 9. Structured log of hit/miss + scores + tokens + cost
 
+
 API contract:
     POST /eva
     body: {"question": "..."}
