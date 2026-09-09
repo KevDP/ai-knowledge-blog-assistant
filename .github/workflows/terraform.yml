@@ -6,6 +6,7 @@ on:
     paths:
       - 'infra/**'
       - 'lambda/**'
+      - 'lambda_digest/**'
       - '.github/workflows/terraform.yml'
   workflow_dispatch:
     inputs:
@@ -30,6 +31,11 @@ env:
   TF_VERSION: '1.9.0'
   # EVA_ALARM_EMAIL
   TF_VAR_alarm_email: ${{ secrets.EVA_ALARM_EMAIL }}
+  # kev-blog CloudFront distribution, for the site section of the weekly digest.
+  # Absent secret resolves to "", which disables that section instead of failing.
+  TF_VAR_cloudfront_distribution_id: ${{ secrets.KEVBLOG_DISTRIBUTION_ID }}
+  # Log group name is not sensitive, so it is a literal rather than a secret.
+  TF_VAR_cloudfront_function_log_group: /aws/cloudfront/function/kevdp-blog-rewrite
 
 jobs:
   terraform:
