@@ -10,11 +10,6 @@ alarms. Usage is state that changes slowly, so it belongs in a periodic report.
 Reads AWS/Lambda, AWS/Bedrock and AWS/CloudFront through GetMetricData, and the
 CloudFront Function's own log through Logs Insights. Deliberately reads standard
 metrics instead of publishing custom ones.
-
-The traffic-composition section exists because CloudFront access logs, which
-would carry user agents, are a paid plan feature costing 20x this workload's
-entire bill. The edge function logs one line per request instead, for a fraction
-of a cent.
 """
 
 from __future__ import annotations
