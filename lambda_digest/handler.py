@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 import time
 
 import boto3
@@ -47,6 +48,36 @@ BOT_MARKERS = (
     "scrapy", "headless", "lighthouse", "pagespeed", "http-client",
     "okhttp", "java/", "go-http", "libwww", "axios", "postman", "scan",
 )
+
+# Version strings no real OS or browser ships. Added after the first eight hours
+# of edge logging, where BOT_MARKERS alone reported 6.4% automated traffic and
+# the actual figure was around 78%: one scanner family was rotating fabricated
+# browser strings, eight of them, at exactly 49 requests each. Uniform counts
+# across distinct agents is itself a fingerprint no human traffic produces.
+#
+# These patterns catch that family. They do not catch a scanner that copies a
+# real, current user agent, and nothing short of behavioural analysis would.
+# AWS sells that as a $200/month tier; the need here is to put an honest number
+# in an email, so three regexes is where this stops.
+FAKE_UA_PATTERNS = (
+    # Real Windows agents are dot-separated ("Windows NT 10.0"), and NT 9 never
+    # existed. An underscore after the major version is fabricated.
+    re.compile(r"Windows NT \d+_"),
+    # macOS reports 10_x_y and Apple freezes the string at 10_15_7. Any other
+    # major version is invented.
+    re.compile(r"Mac OS X (?!10[._])\d"),
+    # Chrome-family browsers have shipped AppleWebKit/537.36 for over a decade.
+    # A 5xx build that is not 537.36 while still claiming Chrome is made up.
+    re.compile(r"AppleWebKit/5(?!37\.36)\d\d\.\d+.*Chrome/"),
+)
+
+
+def _is_automated(ua: str) -> bool:
+    """True when the agent declares itself a bot or carries an impossible version."""
+    low = ua.lower()
+    if any(m in low for m in BOT_MARKERS):
+        return True
+    return any(p.search(ua) for p in FAKE_UA_PATTERNS)
 
 INSIGHTS_POLL_SECONDS = 35
 
@@ -156,7 +187,7 @@ def _edge_traffic(start: dt.datetime, end: dt.datetime) -> dict | None:
             rows.append((f["ua"], int(f["n"])))
 
     total = sum(n for _, n in rows)
-    bots = sum(n for ua, n in rows if any(m in ua.lower() for m in BOT_MARKERS))
+    bots = sum(n for ua, n in rows if _is_automated(ua))
     return {"rows": rows, "total": total, "bots": bots}
 
 
@@ -230,7 +261,7 @@ def _build_report(start: dt.datetime, end: dt.datetime) -> str:
         else:
             lines.append(f"  log lines            {edge['total']:,}")
         lines += [
-            f"  self-declared bots   at least {bot_share:.1f}%",
+            f"  automated traffic    at least {bot_share:.1f}%",
             "  top agents",
         ]
         for ua, n in edge["rows"][:8]:

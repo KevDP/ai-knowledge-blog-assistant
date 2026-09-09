@@ -7,10 +7,16 @@
 # (free), one SNS email (free tier). Effectively zero.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# archive_file zips from the filesystem and does not read .gitignore, so a
+# local run after anyone has executed python here would bake __pycache__ into
+# the package. That changes source_code_hash, and Terraform would then redeploy
+# the function on every alternation between a local apply and CI. Excluding the
+# bytecode keeps the hash identical wherever the plan runs.
 data "archive_file" "digest_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../lambda_digest"
   output_path = "${path.module}/build/digest.zip"
+  excludes    = ["__pycache__", "*.pyc", "__pycache__/*"]
 }
 
 # ─── Execution role ──────────────────────────────────────────────────────────
