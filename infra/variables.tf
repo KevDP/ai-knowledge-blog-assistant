@@ -28,3 +28,15 @@ variable "alarm_email" {
   description = "Email for alarm notifications. Set already in TF_VAR_alarm_email."
   type        = string
 }
+
+variable "cloudfront_function_log_group" {
+  description = "CloudWatch log group written by the kev-blog CloudFront Function. Empty disables the traffic-composition section of the digest."
+  type        = string
+  default     = ""
+}
+
+variable "cloudfront_distribution_id" {
+  description = "kev-blog CloudFront distribution ID, for the site section of the weekly digest."
+  type        = string
+  default     = ""
+}

@@ -25,3 +25,13 @@ output "cache_table_name" {
   description = "DynamoDB table for response cache (Phase 1.4)"
   value       = aws_dynamodb_table.cache.name
 }
+
+output "alerts_topic_arn" {
+  description = "SNS topic for alarms and the weekly digest. The email subscription starts as pending_confirmation: check your inbox and click the link, or nothing is delivered."
+  value       = aws_sns_topic.alerts.arn
+}
+
+output "digest_function_name" {
+  description = "Weekly digest Lambda. Test it now instead of waiting for Monday: aws lambda invoke --function-name <name> /dev/stdout"
+  value       = aws_lambda_function.digest.function_name
+}

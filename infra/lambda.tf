@@ -48,7 +48,16 @@ resource "aws_lambda_function" "eva" {
 # 3. "known bug", terraform destroy can unuse log group
 # and creation can fail with "ResourceAlreadyExists".
 
+# Retention raised 14 -> 90 days after the first production review.
+# Rationale: the per-invocation fields that make this system debuggable
+# (cost_usd, best_score, top_sources, cache_event) exist ONLY in these logs.
+# Metrics live 15 months, logs lived 14 days, so a 60-day retrospective could
+# report volume and tokens but not a single real cost-per-query or cache hit
+# ratio: 14-day retention plus 31 quiet days left storedBytes at 0.
+# Retention is a decision about which questions you will be able to ask later,
+# and it has to be made before you have the question. At this volume the cost
+# difference is rounding error.
 resource "aws_cloudwatch_log_group" "eva_logs" {
   name              = "/aws/lambda/${aws_lambda_function.eva.function_name}"
-  retention_in_days = 14
+  retention_in_days = 90
 }
