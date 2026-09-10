@@ -26,6 +26,19 @@ permissions:
   id-token: write
   contents: read
 
+# One Terraform state file means one lock in DynamoDB, so every run has to
+# serialize regardless of which branch triggered it. The group is a constant,
+# NOT github.ref: a per-branch group puts main and dev in separate lanes, and
+# pushing both at once (which a force push after a history rewrite does) lands
+# two runs seconds apart, racing for the same lock. That is exactly how the
+# 2026-09-10 main run died.
+#
+# cancel-in-progress stays false on purpose: cancelling a run mid-apply is how
+# you get a stale lock and half-created infrastructure. Queueing is correct here.
+concurrency:
+  group: terraform-ai-kb
+  cancel-in-progress: false
+
 env:
   AWS_REGION: us-east-1
   TF_VERSION: '1.9.0'
