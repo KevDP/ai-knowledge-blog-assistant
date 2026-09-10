@@ -34,8 +34,9 @@ env:
   # kev-blog CloudFront distribution, for the site section of the weekly digest.
   # Absent secret resolves to "", which disables that section instead of failing.
   TF_VAR_cloudfront_distribution_id: ${{ secrets.KEVBLOG_DISTRIBUTION_ID }}
-  # Log group name is not sensitive, so it is a literal rather than a secret.
-  TF_VAR_cloudfront_function_log_group: /aws/cloudfront/function/kevdp-blog-rewrite
+  # kev-blog edge function log group. A secret rather than a literal: this repo
+  # is public and the name reveals another project's resource topology.
+  TF_VAR_cloudfront_function_log_group: ${{ secrets.KEVBLOG_FUNCTION_LOG_GROUP }}
 
 jobs:
   terraform:
@@ -50,7 +51,9 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::654654225860:role/github-actions-ai-kb-tf
+          # Full role ARN lives in a secret: this repo is public and the ARN
+          # carries the AWS account ID.
+          role-to-assume: ${{ secrets.AWS_TF_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
